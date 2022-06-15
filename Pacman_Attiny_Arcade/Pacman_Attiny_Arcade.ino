@@ -36,7 +36,7 @@
     All other settings default.
 
     Don't forget to burn the bootloader first!
-    ************ 
+    ************
 
     This sketch is using the screen control and font functions written by Neven Boyanov for the http://tinusaur.wordpress.com/ project
     Source code and font files available at: https://bitbucket.org/tinusaur/ssd1306xled
@@ -48,11 +48,16 @@
     Sleep code is based on this blog post by Matthew Little:
     http://www.re-innovation.co.uk/web12/index.php/en/blog-75/306-sleep-modes-on-attiny85
 */
+
+
 #include <EEPROM.h>
-#include "font6x8AJ3.h"
+// #include "font6x8AJ3.h"
 #include <avr/pgmspace.h>
 #include <avr/sleep.h>
 #include <avr/interrupt.h> // needed for the additional interrupt
+
+#include "oled.h"
+
 
 // Debounce factor - around 50 works ok with AttinyArcade, but you might need to increase this number if you are using differnt hardware
 // and are finding that you're getting multiple direction changes from a single click
@@ -83,19 +88,15 @@
 // How long does powerUp mode last?
 #define POWER_LENGTH 200
 
-#define DIGITAL_WRITE_HIGH(PORT) PORTB |= (1 << PORT)
-#define DIGITAL_WRITE_LOW(PORT) PORTB &= ~(1 << PORT)
 
 // Routines to set and clear bits (used in the sleep code)
 #define cbi(sfr, bit) (_SFR_BYTE(sfr) &= ~_BV(bit))
 #define sbi(sfr, bit) (_SFR_BYTE(sfr) |= _BV(bit))
 
-// Defines for OLED output
-#define SSD1306XLED_H
-#define SSD1306_SCL   PORTB4  // SCL, Pin 4 on SSD1306 Board - for webbogles board
-#define SSD1306_SDA   PORTB3  // SDA, Pin 3 on SSD1306 Board - for webbogles board
-#define SSD1306_SA    0x78  // Slave address
 
+
+#define RIGHT_BTN_PIN   4
+#define LEFT_BTN_PIN    3
 /* ------ This section needs to be updated if you change the screen bitmap ------
    ------------------------------------------------------------------------------*/
 
@@ -105,6 +106,7 @@
 
 // How many pills are there on the screen?
 #define NO_PILLS 56
+// #define NO_PILLS 12
 
 // Where are the ghosts and pacman drawn initially?
 // In each of these, the order is - Ghost1, Ghost2, Ghost3, PAC-MAN
@@ -190,18 +192,7 @@ static const byte pillLocations[NO_PILLS][2] PROGMEM = {
   111, 55
 };
 
-// Drawing functions - adapted from those at https://bitbucket.org/tinusaur/ssd1306xled
-void ssd1306_init(void);
-void ssd1306_xfer_start(void);
-void ssd1306_xfer_stop(void);
-void ssd1306_send_byte(uint8_t byte);
-void ssd1306_send_command(uint8_t command);
-void ssd1306_send_data_start(void);
-void ssd1306_send_data_stop(void);
-void ssd1306_setpos(uint8_t x, uint8_t y);
-void ssd1306_fillscreen(uint8_t fill_Data);
-void ssd1306_char_f6x8(uint8_t x, uint8_t y, const char ch[]);
-void ssd1306_draw_bmp(uint8_t x0, uint8_t y0, uint8_t x1, uint8_t y1, uint8_t bitmap[]);
+
 
 // Other generic functions for games (both originated in code from webboggles.com and the sleep code is by Matthew Little - see above)
 void beep(int, int);
@@ -229,14 +220,14 @@ byte drawPacman(byte c, byte r);
 // Most of these are initialised in the main game function (playPacman())
 boolean stopAnimate;      // this is set to 1 when a collision is detected
 int lives;                // Lives in the game - this can go negative to end the game, which is why it's a signed variable
-unsigned long clickBase;  // Timer for debounce
-boolean clickLock;        // For debounce routine
+// unsigned long clickBase;  // Timer for debounce
+// boolean clickLock;        // For debounce routine
 int score;                // Obvious I hope
 int topScore;             // High score
 boolean newHigh;          // Is there a new high score?
 boolean mute = 0;         // Mute the speaker
 int mouth = 0;            // Is his mouth open?
-int directions[4];        // Directions of the four possible characters (pacman = 0, ghosts are 1-3)
+int directions[4];        // Directions of the four possible characters (ghosts are 0, 1, 2 and pacman = 3)
 int commandDir;           // The desired direction set by input
 byte pillsEaten = 0;      // How many pills have been eaten (there are 63 altogether)
 int ghostCounter = 0;     // How many ghosts
@@ -361,101 +352,102 @@ static const byte gameScreen[] PROGMEM = {
 };
 
 // Interrupt handlers
-ISR(PCINT0_vect) { // PB0 pin button interrupt
-  if (clickLock == 0) {
-    if (commandDir > 0) commandDir--; else commandDir = 3;
-    clickLock = 1;
-    clickBase = millis();
-  }
-}
+// ISR(PCINT0_vect) { // PB0 pin button interrupt
+//   if (clickLock == 0) {
+//     if (commandDir > 0) commandDir--; else commandDir = 3;
+//     clickLock = 1;
+//     clickBase = millis();
+//   }
+// }
 
-void playerIncPacman() { // PB2 pin button interrupt
-  if (clickLock == 0) {
-    if (commandDir < 3) commandDir++; else commandDir = 0;
-    clickLock = 1;
-    clickBase = millis();
-  }
-}
+// void playerIncPacman() { // PB2 pin button interrupt
+//   if (clickLock == 0) {
+//     if (commandDir < 3) commandDir++; else commandDir = 0;
+//     clickLock = 1;
+//     clickBase = millis();
+//   }
+// }
 
 void displayTitle(void) {
   int incr = 0;
   for (int lxn = 3; lxn < 6; lxn++) {
-    ssd1306_setpos(84, lxn);
-    ssd1306_send_data_start();
+    oled_setpos(84, lxn);
+    oled_send_data_start();
     for (int lxn2 = 0; lxn2 < 34; lxn2++) {
-      ssd1306_send_byte(pgm_read_byte(&openBmp[incr]));
+      oled_send_byte(pgm_read_byte(&openBmp[incr]));
       incr++;
       if ( (lxn == 3 || lxn == 5) && lxn2 > 21) lxn2 = 35;
     }
-    ssd1306_send_data_stop();
+    oled_send_data_stop();
   }
 }
 
 // Arduino stuff - setup
 void setup() {
+  PORTB = (1<<RIGHT_BTN_PIN) | (1<<LEFT_BTN_PIN);
   DDRB = 0b00000010;    // set PB1 as output (for the speaker)
-  PCMSK = 0b00000001; // pin change mask: listen to portb bit 1
-  GIMSK |= 0b00100000;  // enable PCINT interrupt
+  // PCMSK = 0b00010000; // pin change mask: listen to portb bit 1
+  // GIMSK |= 0b00100000;  // enable PCINT interrupt
   sei();          // enable all interrupts
 }
 
 void drawBar(byte aColumn, byte aRow, byte aLen) {
-  ssd1306_setpos(aColumn, aRow);
+  oled_setpos(aColumn, aRow);
   for (int incr = 0; incr < aLen; incr++) {
-    ssd1306_send_data_start();
-    ssd1306_send_byte(B00111000);
-    ssd1306_send_data_stop();
+    oled_send_data_start();
+    oled_send_byte(B00111000);
+    oled_send_data_stop();
   }
 }
 
 // Arduino stuff - loop
 void loop() {
-  ssd1306_init();
-  ssd1306_fillscreen(0x00);
+  oled_init();
+  oled_fillscreen(0x00);
 
-  ssd1306_char_f6x8(4, 2, "P A C-M A N");
-  ssd1306_char_f6x8(0, 4, "andy jackson");
+  oled_char_f6x8(4, 2, "P A C-M A N");
+  oled_char_f6x8(0, 4, "andh jackson");
 
   drawBar(0, 1, 76);
   drawBar(0, 3, 76);
 
   displayTitle();
 
-  ssd1306_char_f6x8(0, 6, "inspired by");
-  ssd1306_char_f6x8(0, 7, "webboggles.com");
-  delay(1200);
+  oled_char_f6x8(0, 6, "inspired bh");
+  oled_char_f6x8(0, 7, "/ebboggles.com");
+  DELAY_MS(1200);
 
   long startT = millis();
   long nowT = 0;
   boolean sChange = 0;
 
-  while (digitalRead(0) == HIGH) {
+  while (digitalRead(RIGHT_BTN_PIN) == LOW) {
     nowT = millis();
     if (nowT - startT > 2000) {
       sChange = 1;
-      if (digitalRead(2) == HIGH) {
+      if (digitalRead(LEFT_BTN_PIN) == LOW) {
         EEPROM.write(0, 0);
         EEPROM.write(1, 0);
-        ssd1306_char_f6x8(8, 0, "-HIGH SCORE RESET-");
+        oled_char_f6x8(8, 0, "-HIGH SCORE RESET-");
       } else if (mute == 0) {
         mute = 1;
-        ssd1306_char_f6x8(32, 0, "-- MUTE --");
+        oled_char_f6x8(32, 0, "-- MUTE --");
       } else {
         mute = 0;
-        ssd1306_char_f6x8(31, 0, "- SOUND ON -");
+        oled_char_f6x8(31, 0, "- SOUND ON -");
       }
       break;
     }
     if (sChange == 1) break;
   }
-  while (digitalRead(0) == HIGH);
+  while (digitalRead(RIGHT_BTN_PIN) == LOW);
 
   if (sChange == 0) {
-    delay(1000);
+    DELAY_MS(1000);
 
-    ssd1306_init();
-    ssd1306_fillscreen(0x00);
-    
+    oled_init();
+    oled_fillscreen(0x00);
+
     playPacman();
 
     topScore = EEPROM.read(0);
@@ -470,33 +462,33 @@ void loop() {
       newHigh = 1;
     }
 
-    ssd1306_fillscreen(0x00);
+    oled_fillscreen(0x00);
     drawBar(11, 1, 96);
     drawBar(11, 3, 96);
-    ssd1306_char_f6x8(11, 2, "G A M E  O V E R");
+    oled_char_f6x8(11, 2, "G A M E  O V E R");
     showScore();
     if (!newHigh) {
-      ssd1306_char_f6x8(21, 7, "HIGH SCORE:");
+      oled_char_f6x8(21, 7, "HIGH SCORE:");
       doNumber(88, 7, topScore);
     }
-    delay(1500);
+    DELAY_MS(1500);
     if (newHigh) {
-      ssd1306_fillscreen(0x00);
+      oled_fillscreen(0x00);
       drawBar(11, 1, 96);
       drawBar(11, 3, 96);
-      ssd1306_char_f6x8(10, 2, " NEW HIGH SCORE ");
+      oled_char_f6x8(10, 2, " NEW HIGH SCORE ");
       doNumber(50, 5, topScore);
       for (int i = 700; i > 200; i = i - 50) {
         beep(30, i);
       }
-      delay(1500);
+      DELAY_MS(1500);
     }
   }
   system_sleep();
 }
 
 void showScore(void) {
-  ssd1306_char_f6x8(37, 5, "SCORE:");
+  oled_char_f6x8(37, 5, "SCORE:");
   doNumber(75, 5, score);
 }
 
@@ -508,15 +500,16 @@ void levelUp() {
   if ((level == 3) || (level == 5)) lives++;
   if (maxGhosts < 3) maxGhosts++;
   if (releaseDelay > GHOST_DELAY_MINIMUM) releaseDelay -= GHOST_DELAY_REDUCTION;
-  ssd1306_fillscreen(0x00);
+  oled_fillscreen(0x00);
 
-  ssd1306_char_f6x8(37, 1, "LEVEL:");
+  oled_char_f6x8(37, 1, "LEVEL:");
   doNumber(75, 1, level);
   drawBar(35, 3, 65);
   showScore();
 
-  delay(2500);
-  ssd1306_fillscreen(0x00);
+  DELAY_MS(1500);
+  DELAY_MS(1000);
+  oled_fillscreen(0x00);
   displayScreen();
 }
 
@@ -524,157 +517,21 @@ void levelUp() {
 void doNumber (int x, int y, int value) {
   char temp[10] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
   itoa(value, temp, 10);
-  ssd1306_char_f6x8(x, y, temp);
+  oled_char_f6x8(x, y, temp);
 }
 
-void ssd1306_init(void) {
-  DDRB |= (1 << SSD1306_SDA); // Set port as output
-  DDRB |= (1 << SSD1306_SCL); // Set port as output
 
-  ssd1306_send_command(0xAE); // display off
-  ssd1306_send_command(0x00); // Set Memory Addressing Mode
-  ssd1306_send_command(0x10); // 00,Horizontal Addressing Mode;01,Vertical Addressing Mode;10,Page Addressing Mode (RESET);11,Invalid
-  ssd1306_send_command(0x40); // Set Page Start Address for Page Addressing Mode,0-7
-  ssd1306_send_command(0x81); // Set COM Output Scan Direction
-  ssd1306_send_command(0xCF); // ---set low rowumn address
-  ssd1306_send_command(0xA1); // ---set high rowumn address
-  ssd1306_send_command(0xC8); // --set start line address
-  ssd1306_send_command(0xA6); // --set contrast control register
-  ssd1306_send_command(0xA8);
-  ssd1306_send_command(0x3F); // --set segment re-map 0 to 127
-  ssd1306_send_command(0xD3); // --set normal display
-  ssd1306_send_command(0x00); // --set multiplex ratio(1 to 64)
-  ssd1306_send_command(0xD5); //
-  ssd1306_send_command(0x80); // 0xa4,Output follows RAM content;0xa5,Output ignores RAM content
-  ssd1306_send_command(0xD9); // -set display offset
-  ssd1306_send_command(0xF1); // -not offset
-  ssd1306_send_command(0xDA); // --set display clock divide ratio/oscillator frequency
-  ssd1306_send_command(0x12); // --set divide ratio
-  ssd1306_send_command(0xDB); // --set pre-charge period
-  ssd1306_send_command(0x40); //
-  ssd1306_send_command(0x20); // --set com pins hardware configuration
-  ssd1306_send_command(0x02);
-  ssd1306_send_command(0x8D); // --set vcomh
-  ssd1306_send_command(0x14); // 0x20,0.77xVcc
-  ssd1306_send_command(0xA4); // --set DC-DC enable
-  ssd1306_send_command(0xA6); //
-  ssd1306_send_command(0xAF); // --turn on oled panel
-}
-
-void ssd1306_xfer_start(void) {
-  DIGITAL_WRITE_HIGH(SSD1306_SCL);  // Set to HIGH
-  DIGITAL_WRITE_HIGH(SSD1306_SDA);  // Set to HIGH
-  DIGITAL_WRITE_LOW(SSD1306_SDA);   // Set to LOW
-  DIGITAL_WRITE_LOW(SSD1306_SCL);   // Set to LOW
-}
-
-void ssd1306_xfer_stop(void) {
-  DIGITAL_WRITE_LOW(SSD1306_SCL);   // Set to LOW
-  DIGITAL_WRITE_LOW(SSD1306_SDA);   // Set to LOW
-  DIGITAL_WRITE_HIGH(SSD1306_SCL);  // Set to HIGH
-  DIGITAL_WRITE_HIGH(SSD1306_SDA);  // Set to HIGH
-}
-
-void ssd1306_send_byte(uint8_t byte) {
-  uint8_t i;
-  for (i = 0; i < 8; i++)
-  {
-    if ((byte << i) & 0x80)
-      DIGITAL_WRITE_HIGH(SSD1306_SDA);
-    else
-      DIGITAL_WRITE_LOW(SSD1306_SDA);
-
-    DIGITAL_WRITE_HIGH(SSD1306_SCL);
-    DIGITAL_WRITE_LOW(SSD1306_SCL);
-  }
-  DIGITAL_WRITE_HIGH(SSD1306_SDA);
-  DIGITAL_WRITE_HIGH(SSD1306_SCL);
-  DIGITAL_WRITE_LOW(SSD1306_SCL);
-}
-
-void ssd1306_send_command(uint8_t command) {
-  ssd1306_xfer_start();
-  ssd1306_send_byte(SSD1306_SA);  // Slave address, SA0=0
-  ssd1306_send_byte(0x00);  // write command
-  ssd1306_send_byte(command);
-  ssd1306_xfer_stop();
-}
-
-void ssd1306_send_data_start(void) {
-  ssd1306_xfer_start();
-  ssd1306_send_byte(SSD1306_SA);
-  ssd1306_send_byte(0x40);  //write data
-}
-
-void ssd1306_send_data_stop(void) {
-  ssd1306_xfer_stop();
-}
-
-void ssd1306_setpos(uint8_t x, uint8_t y)
-{
-  if (y > 7) return;
-  ssd1306_xfer_start();
-  ssd1306_send_byte(SSD1306_SA);  //Slave address,SA0=0
-  ssd1306_send_byte(0x00);  //write command
-
-  ssd1306_send_byte(0xb0 + y);
-  ssd1306_send_byte(((x & 0xf0) >> 4) | 0x10); // |0x10
-  ssd1306_send_byte((x & 0x0f) | 0x01); // |0x01
-
-  ssd1306_xfer_stop();
-}
-
-void ssd1306_fillscreen(uint8_t fill_Data) {
-  uint8_t m, n;
-  for (m = 0; m < 8; m++)
-  {
-    ssd1306_send_command(0xb0 + m); //page0-page1
-    ssd1306_send_command(0x00);   //low rowumn start address
-    ssd1306_send_command(0x10);   //high rowumn start address
-    ssd1306_send_data_start();
-    for (n = 0; n < 128; n++)
-    {
-      ssd1306_send_byte(fill_Data);
-    }
-    ssd1306_send_data_stop();
-  }
-}
-
-void ssd1306_char_f6x8(uint8_t x, uint8_t y, const char ch[]) {
-  uint8_t c, i, j = 0;
-  while (ch[j] != '\0')
-  {
-    c = ch[j] - 32;
-    if (c > 0) c = c - 12;
-    if (c > 15) c = c - 6;
-    if (c > 40) c = c - 9;
-    if (x > 126)
-    {
-      x = 0;
-      y++;
-    }
-    ssd1306_setpos(x, y);
-    ssd1306_send_data_start();
-    for (i = 0; i < 6; i++)
-    {
-      ssd1306_send_byte(pgm_read_byte(&ssd1306xled_font6x8[c * 6 + i]));
-    }
-    ssd1306_send_data_stop();
-    x += 6;
-    j++;
-  }
-}
 
 void system_sleep(void) {
-  ssd1306_fillscreen(0x00);
-  ssd1306_send_command(0xAE);
+  oled_fillscreen(0x00);
+  oled_send_command(0xAE);
   cbi(ADCSRA, ADEN);                   // switch analog to digital converter off
   set_sleep_mode(SLEEP_MODE_PWR_DOWN); // sleep mode is set here
   sleep_enable();
   sleep_mode();                        // system actually sleeps here
   sleep_disable();                     // system continues execution here when watchdog timed out
   sbi(ADCSRA, ADEN);                   // switch analog to digital converter on
-  ssd1306_send_command(0xAF);
+  oled_send_command(0xAF);
 }
 
 void beep(int bCount, int bDelay) {
@@ -717,8 +574,8 @@ void displayScreen(void) {
   byte out;
 
   for (byte c = 0; c < 8; c++) {
-    ssd1306_setpos(0, c);
-    ssd1306_send_data_start();
+    oled_setpos(0, c);
+    oled_send_data_start();
     for (byte r = 0; r < 128; r++) {
       out = (pgm_read_byte(&gameScreen[incr]));
 
@@ -777,11 +634,11 @@ void displayScreen(void) {
         }
       }
 
-      ssd1306_send_byte(out);
+      oled_send_byte(out);
       incr++;
     } // end for 128
 
-    ssd1306_send_data_stop();
+    oled_send_data_stop();
   }
 }
 
@@ -865,11 +722,11 @@ void moveGhosts(void) {
       // Slow the ghosts down if powerup mode is active
       gCount++;
       if (gCount >= 5) {
-        if(powerUp) travelDirection = 0; 
+        if(powerUp) travelDirection = 0;
         if (powerCounter > POWER_LENGTH - 50) flipFlop = !flipFlop;
         gCount = 0;
       }
-    
+
       locations[lxn][travelParam] += travelDirection;
       // Move the ghosts along according to which way they are heading - if there's a clash, then backtrack
       if (checkCollision(locations[lxn][0], locations[lxn][1]) == 1) {
@@ -929,7 +786,7 @@ void pacDie(void) {
   for (i = 500; i < 1000; i = i + 50) {
     beep(50, i);
   }
-  delay(1200);
+  DELAY_MS(1200);
   stopAnimate = 1;
 }
 
@@ -938,10 +795,10 @@ void movePacman(void) {
   if (pCount >= 3) {
     if (mouth == 0) {
       mouth = 1;
-      beep(20, 400 + (powerUp * 100));
+      // beep(20, 400 + (powerUp * 100));
     } else {
       mouth = 0;
-      beep(20, 420);
+      // beep(20, 420);
     }
     pCount = 0;
   }
@@ -958,6 +815,28 @@ void movePacman(void) {
   }
 
   oldDir = directions[3];
+
+  // deal with inputs
+
+  // ADC button        | Resistance (R2) | Voltage | ADC threshold (8 MSB precision) | | V1 Mapping
+  // ------------------|-----------------|---------|---------------------------------|-|-------------
+  // ADC_VD_CH0_BTN_0  | 51 K            | 1.222 v | 0x70    | 0b01110000            | NAV_UP_BTN
+  // ADC_VD_CH0_BTN_1  | 68 K            | 1.395 v | 0x80    | 0b10000000            | NAV_DOWN_BTN
+  // ADC_VD_CH0_BTN_2  | 100 K           | 1.613 v | 0x94    | 0b10010100            | NAV_LEFT_BTN
+  // ADC_VD_CH0_BTN_3  | 300 K           | 2.074 v | 0xbf    | 0b10111111            | NAV_RIGHT_BTN
+  // ADC_VD_CH0_BTN_4  | 1 M             | 2.305 v | 0xd4    | 0b11010100            | OK
+
+  int adcBtn = analogRead(0);
+  if(adcBtn < (0x70 + 8 << 2)) {
+    commandDir = DIR_UP;
+  } else if(adcBtn < (0x80 + 8 << 2)) {
+    commandDir = DIR_DOWN;
+  } else if(adcBtn < (0x94 + 8 << 2)) {
+    commandDir = DIR_LEFT;
+  } else if (adcBtn < (0xbf + 8 << 2)) {
+    commandDir = DIR_RIGHT;
+  }
+
   directions[3] = commandDir;
 
   switch (directions[3]) {
@@ -1026,7 +905,6 @@ void movePacman(void) {
 }
 
 void initLevel(void) {
-  clickLock = 0;
   pillsEaten = 0;
   stopAnimate = 0;
 
@@ -1067,7 +945,7 @@ void playPacman() {
   releaseDelay = INITIAL_GHOST_DELAY;
   maxGhosts = INITIAL_GHOSTS;
 
-  attachInterrupt(0, playerIncPacman, CHANGE);
+  // attachInterrupt(0, playerIncPacman, CHANGE);
 
   initLevel();
   initScreen();
@@ -1095,7 +973,7 @@ void playPacman() {
       lives--;
       initScreen();
     }
-    if (clickLock == 1 && millis() > clickBase + CLICKDELAY && digitalRead(2) == 0 && digitalRead(0) == 0) clickLock = 0; // normal debounce
+    // if (clickLock == 1 && millis() > clickBase + CLICKDELAY && digitalRead(LEFT_BTN_PIN) == HIGH && digitalRead(RIGHT_BTN_PIN) == HIGH) clickLock = 0; // normal debounce
 
     displayScreen();
   }

@@ -1,3 +1,4 @@
+#pragma once
 /*
  * SSD1306xLED - Drivers for SSD1306 controlled dot matrix OLED/PLED 128x64 displays
  *
@@ -21,7 +22,7 @@
 // ----------------------------------------------------------------------------
 
 /* Standard ASCII 6x8 font */
-static const uint8_t ssd1306xled_font6x8 [] PROGMEM = {
+static const uint8_t xoled_font6x8 [] PROGMEM = {
   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // sp
 /*
   0x00, 0x00, 0x00, 0x2f, 0x00, 0x00, // !
@@ -123,4 +124,3 @@ static const uint8_t ssd1306xled_font6x8 [] PROGMEM = {
 };
 
 // ----------------------------------------------------------------------------
-
